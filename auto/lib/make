@@ -11,6 +11,10 @@ if [ $OPENSSL != NONE -a $OPENSSL != NO -a $OPENSSL != YES ]; then
     . auto/lib/openssl/make
 fi
 
+if [ $MITLS != NONE -a $MITLS != NO -a $MITLS != YES ]; then 
+    . auto/lib/mitls/make 
+fi
+
 if [ $ZLIB != NONE -a $ZLIB != NO -a $ZLIB != YES ]; then
     . auto/lib/zlib/make
 fi

@@ -665,7 +665,7 @@ if [ $HTTP_REWRITE = YES -a $USE_PCRE != DISABLED ]; then
 fi
 
 if [ $HTTP_SSL = YES ]; then
-    USE_OPENSSL=YES
+    USE_SSL=YES
     have=NGX_HTTP_SSL . auto/have
 
     ngx_module_name=ngx_http_ssl_module
@@ -909,7 +909,7 @@ if [ $MAIL != NO ]; then
     ngx_module_incs=
 
     if [ $MAIL_SSL = YES ]; then
-        USE_OPENSSL=YES
+        USE_SSL=YES
         have=NGX_MAIL_SSL . auto/have
 
         ngx_module_name=ngx_mail_ssl_module
@@ -1212,6 +1212,20 @@ if [ $USE_OPENSSL = YES ]; then
     . auto/module
 fi
 
+if [ $USE_MITLS = YES ]; then
+    ngx_module_type=CORE
+    ngx_module_name=ngx_mitls_module
+    ngx_module_incs=
+    ngx_module_deps=src/event/ngx_event_mitls.h
+    ngx_module_srcs="src/event/ngx_event_mitls.c
+                     src/event/ngx_event_openssl_stapling.c"
+    ngx_module_libs=
+    ngx_module_link=YES
+    ngx_module_order=
+
+    . auto/module
+fi
+
 
 if [ $USE_PCRE = YES ]; then
     ngx_module_type=CORE
@@ -1228,7 +1242,6 @@ fi
 
 
 modules="$CORE_MODULES $EVENT_MODULES"
-
 
 # thread pool module should be initialized after events
 if [ $USE_THREADS = YES ]; then

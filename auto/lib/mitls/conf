@@ -1,0 +1,59 @@
+# Copyright (C) Microsoft Corporation
+
+# Copyright (C) Igor Sysoev
+
+# Copyright (C) Nginx, Inc.
+
+if [ $MITLS != NONE ]; then
+    case "$CC" in
+        cl | bcc32)
+            # Consider adding support for Windows.
+cat << END
+
+$0: error: Ngnix's miTLS support requires a non-cl/bcc32 compiler.
+The build infrastructure for miTLS support has not been written for cl or
+bcc32.  You can either use GCC or try using OpenSSL instead.
+END
+    exit 1
+
+    ;;
+        *)
+            have=NGX_MITLS . auto/have
+            have=NGX_SSL . auto/have
+            CORE_INCS="$CORE_INCS $MITLS/libs/ffi"
+            CORE_DEPS="$CORE_DEPS $MITLS/libs/ffi/mitlsffi.h"
+            CORE_LIBS="$CORE_LIBS $MITLS/src/tls/libmitls.so"
+            CORE_LIBS="$CORE_LIBS $NGX_LIBDL"
+        ;;
+    esac
+else
+    if [ "$NGX_PLATFORM" != win32 ]; then
+        MITLS=NO
+
+        ngx_feature="miTLS library"
+        ngx_feature_name="NGX_MITLS"
+        ngx_feature_run=no
+        ngx_feature_incs="#include <ffi.h>"
+        ngx_feature_path=
+        ngx_feature_libs="-lmitls"
+        ngx_feature_test="int ret = FFI_mitls_init();"
+        . auto/feature
+
+        if [ $ngx_found = yes ]; then
+            have=NGX_SSL . auto/have
+            CORE_LIBS="$CORE_LIBS $ngx_feature_libs $NGX_LIBDL"
+            MITLS=YES
+        fi
+    fi
+
+    if [ $MITLS != YES ]; then
+cat << END
+
+$0: error: SSL modules require the miTLS library.
+You can either do not enable the modules, or install the miTLS library
+into the system, or build the miTLS library statically from the source
+with nginx by using --with-mitls=<path> option.
+END
+        exit 1
+    fi
+fi
