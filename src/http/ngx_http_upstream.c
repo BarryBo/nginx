@@ -1692,12 +1692,14 @@ ngx_http_upstream_ssl_handshake(ngx_connection_t *c)
     if (c->ssl->handshaked) {
 
         if (u->conf->ssl_verify) {
-            rc = SSL_get_verify_result(c->ssl->connection);
+           const char *errstr;
+           ngx_int_t err;
+            err = ngx_ssl_verify_result(c, &rc, &errstr);
 
-            if (rc != X509_V_OK) {
+            if (err != NGX_OK) {
                 ngx_log_error(NGX_LOG_ERR, c->log, 0,
                               "upstream SSL certificate verify error: (%l:%s)",
-                              rc, X509_verify_cert_error_string(rc));
+                              rc, errstr);
                 goto failed;
             }
 

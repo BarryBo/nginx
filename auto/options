@@ -348,9 +348,11 @@ use the \"--with-mail_ssl_module\" option instead"
         --with-pcre-opt=*)               PCRE_OPT="$value"          ;;
         --with-pcre-jit)                 PCRE_JIT=YES               ;;
 
+        --with-openssl)                    USE_OPENSSL=YES          ;;
         --with-openssl=*)                OPENSSL="$value"           ;;
         --with-openssl-opt=*)            OPENSSL_OPT="$value"       ;;
 	
+        --with-mitls)                        USE_MITLS=YES            ;;
         --with-mitls=*)                MITLS="$value"           ;;
         --with-mitls-opt=*)            MITLS_OPT="$value"       ;;
 

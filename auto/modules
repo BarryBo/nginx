@@ -997,7 +997,7 @@ if [ $STREAM != NO ]; then
     ngx_module_incs=
 
     if [ $STREAM_SSL = YES ]; then
-        USE_OPENSSL=YES
+        USE_SSL=YES
         have=NGX_STREAM_SSL . auto/have
 
         ngx_module_name=ngx_stream_ssl_module
@@ -1197,8 +1197,8 @@ if test -n "$DYNAMIC_ADDONS"; then
     done
 fi
 
-
 if [ $USE_OPENSSL = YES ]; then
+    echo "Using OpenSSL"
     ngx_module_type=CORE
     ngx_module_name=ngx_openssl_module
     ngx_module_incs=
@@ -1213,6 +1213,7 @@ if [ $USE_OPENSSL = YES ]; then
 fi
 
 if [ $USE_MITLS = YES ]; then
+    echo "Using miTLS"
     ngx_module_type=CORE
     ngx_module_name=ngx_mitls_module
     ngx_module_incs=

@@ -20,7 +20,6 @@ END
     fi
 fi
 
-
 if [ $USE_SSL = YES ]; then 
   if [ $USE_OPENSSL = YES -o $OPENSSL != NONE ]; then 
     . auto/lib/openssl/conf 

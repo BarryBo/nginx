@@ -293,7 +293,7 @@ ngx_mail_verify_cert(ngx_mail_session_t *s, ngx_connection_t *c)
         return NGX_OK;
     }
 
-    rc = SSL_get_verify_result(c->ssl->connection);
+    rc = ngx_ssl_verify_result(c->ssl->connection);
 
     if (rc != X509_V_OK
         && (sslcf->verify != 3 || !ngx_ssl_verify_error_optional(rc)))
@@ -303,7 +303,7 @@ ngx_mail_verify_cert(ngx_mail_session_t *s, ngx_connection_t *c)
                       rc, X509_verify_cert_error_string(rc));
 
         ngx_ssl_remove_cached_session(sslcf->ssl.ctx,
-                                      (SSL_get0_session(c->ssl->connection)));
+                                      (ngx_ssl_peek_session(c->ssl->connection)));
 
         cscf = ngx_mail_get_module_srv_conf(s, ngx_mail_core_module);
 
@@ -324,7 +324,7 @@ ngx_mail_verify_cert(ngx_mail_session_t *s, ngx_connection_t *c)
                           "client sent no required SSL certificate");
 
             ngx_ssl_remove_cached_session(sslcf->ssl.ctx,
-                                       (SSL_get0_session(c->ssl->connection)));
+                                       (ngx_ssl_peek_session(c->ssl->connection)));
 
             cscf = ngx_mail_get_module_srv_conf(s, ngx_mail_core_module);
 

@@ -1,18 +1,19 @@
 
 /*
+ * Copyright (C) Microsoft Corp
  * Copyright (C) Igor Sysoev
  * Copyright (C) Nginx, Inc.
  */
 
 
-#ifndef _NGX_EVENT_OPENSSL_H_INCLUDED_
-#define _NGX_EVENT_OPENSSL_H_INCLUDED_
+#ifndef _NGX_EVENT_MITLS_H_INCLUDED_
+#define _NGX_EVENT_MITLS_H_INCLUDED_
 
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 
-#include <openssl/ssl.h>
+//#include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/bn.h>
 #include <openssl/conf.h>
@@ -29,6 +30,7 @@
 #include <openssl/rsa.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
+#include <mitlsffi.h>
 
 #define NGX_SSL_NAME     "OpenSSL"
 
@@ -49,13 +51,32 @@
 
 #endif
 
+struct mitls_session_data {
+    void *arg;
+};
 
-#define ngx_ssl_session_t       SSL_SESSION
-#define ngx_ssl_conn_t          SSL
+// The current highest session data number
+extern size_t mitls_session_data_length;
 
+// The miTLS FFI doesn't have a concept of a session yet.
+typedef struct _mitls_session {
+    // number of elements in session_data
+    size_t session_data_length;
+    
+    // dense array of session data.
+    struct mitls_session_data *session_data;
+} mitls_session;
+
+typedef struct _mitls_connection {
+    // pointer to the miTLS connection state, managed by the FFI layer
+    mitls_state *state;
+} mitls_connection;
+
+#define ngx_ssl_session_t       mitls_session
+#define ngx_ssl_conn_t          mitls_connection
 
 struct ngx_ssl_s {
-    SSL_CTX                    *ctx;
+    void                    *ctx;
     ngx_log_t                  *log;
     size_t                      buffer_size;
 };
@@ -161,7 +182,7 @@ RSA *ngx_ssl_rsa512_key_callback(ngx_ssl_conn_t *ssl_conn, int is_export,
 ngx_array_t *ngx_ssl_read_password_file(ngx_conf_t *cf, ngx_str_t *file);
 ngx_int_t ngx_ssl_dhparam(ngx_conf_t *cf, ngx_ssl_t *ssl, ngx_str_t *file);
 ngx_int_t ngx_ssl_ecdh_curve(ngx_conf_t *cf, ngx_ssl_t *ssl, ngx_str_t *name);
-ngx_int_t ngx_ssl_cipher_list(ngx_conf_t *cf, ngx_ssl_t *ssl,
+ngx_int_t ngx_ssl_cipher_list(ngx_conf_t *cf, ngx_ssl_t *ssl, 
     ngx_str_t *ciphers);
 ngx_int_t ngx_ssl_session_cache(ngx_ssl_t *ssl, ngx_str_t *sess_ctx,
     ssize_t builtin_session_cache, ngx_shm_zone_t *shm_zone, time_t timeout);
@@ -171,19 +192,21 @@ ngx_int_t ngx_ssl_session_cache_init(ngx_shm_zone_t *shm_zone, void *data);
 ngx_int_t ngx_ssl_create_connection(ngx_ssl_t *ssl, ngx_connection_t *c,
     ngx_uint_t flags);
 
-void ngx_ssl_remove_cached_session(SSL_CTX *ssl, ngx_ssl_session_t *sess);
+void ngx_ssl_remove_cached_session(ngx_ssl_conn_t *ssl, ngx_ssl_session_t *sess);
 ngx_int_t ngx_ssl_set_session(ngx_connection_t *c, ngx_ssl_session_t *session);
-#define ngx_ssl_get_session(c)      SSL_get1_session(c->ssl->connection)
-#define ngx_ssl_peek_session(c)     SSL_get0_session(c->ssl->connection)
-#define ngx_ssl_free_session        SSL_SESSION_free
-#define ngx_ssl_get_connection(ssl_conn)                                      \
-    SSL_get_ex_data(ssl_conn, ngx_ssl_connection_index)
-#define ngx_ssl_get_server_conf(ssl_ctx)                                      \
-    SSL_CTX_get_ex_data(ssl_ctx, ngx_ssl_server_conf_index)
+ngx_ssl_session_t * ngx_ssl_get_session(ngx_connection_t *c);
+ngx_ssl_session_t * ngx_ssl_peek_session(ngx_connection_t *cl);
+void ngx_ssl_free_session(ngx_ssl_session_t *ssl);
 
-ngx_int_t ngx_ssl_have_peer_cert(ngx_connection_t *c);
-ngx_int_t ngx_ssl_verify_result(ngx_connection_t *c, long *rc,
-    const char **errstr);
+void *ngx_ssl_get_ex_data(const ngx_ssl_session_t  *session, int idx);
+#define ngx_ssl_get_connection(ssl_conn)                                      \
+    ngl_ssl_get_ex_data(ssl_conn, ngx_ssl_connection_index)
+#define ngx_ssl_get_server_conf(ssl_ctx)                                      \
+    ngl_ssl_get_ex_data(ssl_ctx, ngx_ssl_server_conf_index)
+
+ngx_int_t ngx_ssl_have_peer_cert(ngx_connection_t *c); 
+ngx_int_t ngx_ssl_verify_result(ngx_connection_t *c, long *rc, 
+    const char **errstr); 
 
 #define ngx_ssl_verify_error_optional(n)                                      \
     (n == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT                              \
@@ -247,7 +270,9 @@ void ngx_cdecl ngx_ssl_error(ngx_uint_t level, ngx_log_t *log, ngx_err_t err,
     char *fmt, ...);
 void ngx_ssl_cleanup_ctx(void *data);
 
-
+ngx_ssl_session_t *d2i_SSL_SESSION(ngx_ssl_session_t **a, const unsigned char **pp, long length);
+ int i2d_SSL_SESSION(ngx_ssl_session_t *in, unsigned char **pp);
+ 
 extern int  ngx_ssl_connection_index;
 extern int  ngx_ssl_server_conf_index;
 extern int  ngx_ssl_session_cache_index;
@@ -258,4 +283,4 @@ extern int  ngx_ssl_certificate_name_index;
 extern int  ngx_ssl_stapling_index;
 
 
-#endif /* _NGX_EVENT_OPENSSL_H_INCLUDED_ */
+#endif /* _NGX_EVENT_MITLS_H_INCLUDED_ */

@@ -1853,7 +1853,7 @@ ngx_http_process_request(ngx_http_request_t *r)
 
     if (r->http_connection->ssl) {
         long                      rc;
-        X509                     *cert;
+        const char          *errstr;
         ngx_http_ssl_srv_conf_t  *sscf;
 
         if (c->ssl == NULL) {
@@ -1866,37 +1866,34 @@ ngx_http_process_request(ngx_http_request_t *r)
         sscf = ngx_http_get_module_srv_conf(r, ngx_http_ssl_module);
 
         if (sscf->verify) {
-            rc = SSL_get_verify_result(c->ssl->connection);
+            rc = ngx_ssl_verify_result(c, &rc, &errstr);
 
             if (rc != X509_V_OK
                 && (sscf->verify != 3 || !ngx_ssl_verify_error_optional(rc)))
             {
                 ngx_log_error(NGX_LOG_INFO, c->log, 0,
                               "client SSL certificate verify error: (%l:%s)",
-                              rc, X509_verify_cert_error_string(rc));
+                              rc, errstr);
+
 
                 ngx_ssl_remove_cached_session(sscf->ssl.ctx,
-                                       (SSL_get0_session(c->ssl->connection)));
+                                       (ngx_ssl_peek_session(c)));
 
                 ngx_http_finalize_request(r, NGX_HTTPS_CERT_ERROR);
                 return;
             }
 
             if (sscf->verify == 1) {
-                cert = SSL_get_peer_certificate(c->ssl->connection);
-
-                if (cert == NULL) {
+                if (ngx_ssl_have_peer_cert(c) != NGX_OK) {
                     ngx_log_error(NGX_LOG_INFO, c->log, 0,
                                   "client sent no required SSL certificate");
 
                     ngx_ssl_remove_cached_session(sscf->ssl.ctx,
-                                       (SSL_get0_session(c->ssl->connection)));
+                                       (ngx_ssl_peek_session(c)));
 
                     ngx_http_finalize_request(r, NGX_HTTPS_NO_CERT);
                     return;
                 }
-
-                X509_free(cert);
             }
         }
     }

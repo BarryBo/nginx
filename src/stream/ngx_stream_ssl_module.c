@@ -314,7 +314,7 @@ ngx_stream_ssl_handler(ngx_stream_session_t *s)
     }
 
     if (sslcf->verify) {
-        rc = SSL_get_verify_result(c->ssl->connection);
+        rc = ngx_ssl_verify_result(c->ssl->connection);
 
         if (rc != X509_V_OK
             && (sslcf->verify != 3 || !ngx_ssl_verify_error_optional(rc)))
@@ -324,7 +324,7 @@ ngx_stream_ssl_handler(ngx_stream_session_t *s)
                           rc, X509_verify_cert_error_string(rc));
 
             ngx_ssl_remove_cached_session(sslcf->ssl.ctx,
-                                       (SSL_get0_session(c->ssl->connection)));
+                                       (ngx_ssl_peek_session(c->ssl->connection)));
             return NGX_ERROR;
         }
 
@@ -336,7 +336,7 @@ ngx_stream_ssl_handler(ngx_stream_session_t *s)
                               "client sent no required SSL certificate");
 
                 ngx_ssl_remove_cached_session(sslcf->ssl.ctx,
-                                       (SSL_get0_session(c->ssl->connection)));
+                                       (ngx_ssl_peek_session(c->ssl->connection)));
                 return NGX_ERROR;
             }
 

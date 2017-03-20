@@ -1067,7 +1067,7 @@ ngx_stream_proxy_ssl_handshake(ngx_connection_t *pc)
     if (pc->ssl->handshaked) {
 
         if (pscf->ssl_verify) {
-            rc = SSL_get_verify_result(pc->ssl->connection);
+            rc = ngx_ssl_verify_result(pc->ssl->connection);
 
             if (rc != X509_V_OK) {
                 ngx_log_error(NGX_LOG_ERR, pc->log, 0,
