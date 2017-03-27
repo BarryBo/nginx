@@ -1219,7 +1219,8 @@ if [ $USE_MITLS = YES ]; then
     ngx_module_incs=
     ngx_module_deps=src/event/ngx_event_mitls.h
     ngx_module_srcs="src/event/ngx_event_mitls.c
-                     src/event/ngx_event_openssl_stapling.c"
+                     src/event/ngx_event_openssl_stapling.c
+                     src/event/mitls_opensslcompat.c"
     ngx_module_libs=
     ngx_module_link=YES
     ngx_module_order=

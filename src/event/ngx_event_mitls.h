@@ -32,51 +32,21 @@
 #include <openssl/x509v3.h>
 #include <mitlsffi.h>
 
-#define NGX_SSL_NAME     "OpenSSL"
+#define NGX_SSL_NAME     "miTLS"
+
+// bugbug: fetch this from mitls
+#define ngx_ssl_version()       0x00100010 // M NN FF PP SS major minor fix patch status
+
+typedef struct _mitls_session mitls_session;
+typedef struct _mitls_connection mitls_connection;
+typedef struct _mitls_context mitls_context;
+#define ngx_ssl_session_t       mitls_session       // equivalent to SSL_SESSION
+#define ngx_ssl_conn_t          mitls_connection // equivalent to SSL
 
 
-#if (defined LIBRESSL_VERSION_NUMBER && OPENSSL_VERSION_NUMBER == 0x20000000L)
-#undef OPENSSL_VERSION_NUMBER
-#define OPENSSL_VERSION_NUMBER  0x1000107fL
-#endif
-
-
-#if (OPENSSL_VERSION_NUMBER >= 0x10100001L)
-
-#define ngx_ssl_version()       OpenSSL_version(OPENSSL_VERSION)
-
-#else
-
-#define ngx_ssl_version()       SSLeay_version(SSLEAY_VERSION)
-
-#endif
-
-struct mitls_session_data {
-    void *arg;
-};
-
-// The current highest session data number
-extern size_t mitls_session_data_length;
-
-// The miTLS FFI doesn't have a concept of a session yet.
-typedef struct _mitls_session {
-    // number of elements in session_data
-    size_t session_data_length;
-    
-    // dense array of session data.
-    struct mitls_session_data *session_data;
-} mitls_session;
-
-typedef struct _mitls_connection {
-    // pointer to the miTLS connection state, managed by the FFI layer
-    mitls_state *state;
-} mitls_connection;
-
-#define ngx_ssl_session_t       mitls_session
-#define ngx_ssl_conn_t          mitls_connection
-
+//  ngx_ssl_t is an alias for this struct
 struct ngx_ssl_s {
-    void                    *ctx;
+    mitls_context                    *ctx;
     ngx_log_t                  *log;
     size_t                      buffer_size;
 };
@@ -84,7 +54,7 @@ struct ngx_ssl_s {
 
 struct ngx_ssl_connection_s {
     ngx_ssl_conn_t             *connection;
-    SSL_CTX                    *session_ctx;
+    mitls_context                *ctx;
 
     ngx_int_t                   last;
     ngx_buf_t                  *buf;
@@ -100,7 +70,6 @@ struct ngx_ssl_connection_s {
     unsigned                    buffer:1;
     unsigned                    no_wait_shutdown:1;
     unsigned                    no_send_shutdown:1;
-    unsigned                    handshake_buffer_set:1;
 };
 
 
@@ -135,8 +104,6 @@ typedef struct {
 } ngx_ssl_session_cache_t;
 
 
-#ifdef SSL_CTRL_SET_TLSEXT_TICKET_KEY_CB
-
 typedef struct {
     size_t                      size;
     u_char                      name[16];
@@ -144,7 +111,6 @@ typedef struct {
     u_char                      aes_key[32];
 } ngx_ssl_session_ticket_key_t;
 
-#endif
 
 
 #define NGX_SSL_SSLv2    0x0002
@@ -152,6 +118,7 @@ typedef struct {
 #define NGX_SSL_TLSv1    0x0008
 #define NGX_SSL_TLSv1_1  0x0010
 #define NGX_SSL_TLSv1_2  0x0020
+#define NGX_SSL_TLSv1_3  0x0040
 
 
 #define NGX_SSL_BUFFER   1
@@ -192,17 +159,17 @@ ngx_int_t ngx_ssl_session_cache_init(ngx_shm_zone_t *shm_zone, void *data);
 ngx_int_t ngx_ssl_create_connection(ngx_ssl_t *ssl, ngx_connection_t *c,
     ngx_uint_t flags);
 
-void ngx_ssl_remove_cached_session(ngx_ssl_conn_t *ssl, ngx_ssl_session_t *sess);
+void ngx_ssl_remove_cached_session(mitls_context *ctx, ngx_ssl_session_t *sess);
 ngx_int_t ngx_ssl_set_session(ngx_connection_t *c, ngx_ssl_session_t *session);
 ngx_ssl_session_t * ngx_ssl_get_session(ngx_connection_t *c);
 ngx_ssl_session_t * ngx_ssl_peek_session(ngx_connection_t *cl);
 void ngx_ssl_free_session(ngx_ssl_session_t *ssl);
 
-void *ngx_ssl_get_ex_data(const ngx_ssl_session_t  *session, int idx);
+void *ngx_ssl_get_ex_data(const ngx_ssl_conn_t  *conn, int idx);
 #define ngx_ssl_get_connection(ssl_conn)                                      \
-    ngl_ssl_get_ex_data(ssl_conn, ngx_ssl_connection_index)
+    ngx_ssl_get_ex_data(ssl_conn, ngx_ssl_connection_index)
 #define ngx_ssl_get_server_conf(ssl_ctx)                                      \
-    ngl_ssl_get_ex_data(ssl_ctx, ngx_ssl_server_conf_index)
+    ngx_ssl_get_ex_data(ssl_ctx, ngx_ssl_server_conf_index)
 
 ngx_int_t ngx_ssl_have_peer_cert(ngx_connection_t *c); 
 ngx_int_t ngx_ssl_verify_result(ngx_connection_t *c, long *rc, 
@@ -270,9 +237,11 @@ void ngx_cdecl ngx_ssl_error(ngx_uint_t level, ngx_log_t *log, ngx_err_t err,
     char *fmt, ...);
 void ngx_ssl_cleanup_ctx(void *data);
 
-ngx_ssl_session_t *d2i_SSL_SESSION(ngx_ssl_session_t **a, const unsigned char **pp, long length);
- int i2d_SSL_SESSION(ngx_ssl_session_t *in, unsigned char **pp);
- 
+ngx_ssl_session_t *ngx_d2i_SSL_SESSION(ngx_ssl_session_t **a, const unsigned char **pp, long length);
+int ngx_i2d_SSL_SESSION(ngx_ssl_session_t *in, unsigned char **pp);
+#define d2i_SSL_SESSION ngx_d2i_SSL_SESSION
+#define i2d_SSL_SESSION ngx_i2d_SSL_SESSION
+
 extern int  ngx_ssl_connection_index;
 extern int  ngx_ssl_server_conf_index;
 extern int  ngx_ssl_session_cache_index;
