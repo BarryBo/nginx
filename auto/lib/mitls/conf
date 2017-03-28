@@ -7,21 +7,36 @@
 if [ $MITLS != NONE ]; then
     case "$CC" in
         cl | bcc32)
-            # Consider adding support for Windows.
-cat << END
+            have=NGX_OPENSSL . auto/have
+            have=NGX_SSL . auto/have
 
-$0: error: Ngnix's miTLS support requires a non-cl/bcc32 compiler.
-The build infrastructure for miTLS support has not been written for cl or
-bcc32.  You can either use GCC or try using OpenSSL instead.
-END
-    exit 1
+            CFLAGS="$CFLAGS -DNO_SYS_TYPES_H"
 
-    ;;
+            CORE_INCS="$CORE_INCS $MITLS/libs/ffi $OPENSSL/openssl/include"
+            CORE_DEPS="$CORE_DEPS $MITLS/libs/ffi/mitlsffi.h"
+            CORE_LIBS="$CORE_LIBS $MITLS/src/tls/libmitls.lib"
+
+            if [ -f $OPENSSL/ms/do_ms.bat ]; then
+                # before OpenSSL 1.1.0
+                CORE_LIBS="$CORE_LIBS $OPENSSL/openssl/lib/ssleay32.lib"
+                CORE_LIBS="$CORE_LIBS $OPENSSL/openssl/lib/libeay32.lib"
+            else
+                # OpenSSL 1.1.0+
+                CORE_LIBS="$CORE_LIBS $OPENSSL/openssl/lib/libssl.lib"
+                CORE_LIBS="$CORE_LIBS $OPENSSL/openssl/lib/libcrypto.lib"
+            fi
+
+            # libeay32.lib requires gdi32.lib
+            CORE_LIBS="$CORE_LIBS gdi32.lib"
+            # OpenSSL 1.0.0 requires crypt32.lib
+            CORE_LIBS="$CORE_LIBS crypt32.lib"
+        ;;
         *)
             have=NGX_MITLS . auto/have
             have=NGX_SSL . auto/have
             CORE_INCS="$CORE_INCS $MITLS/libs/ffi"
             CORE_DEPS="$CORE_DEPS $MITLS/libs/ffi/mitlsffi.h"
+            CORE_LIBS="$CORE_LIBS -L/usr/local/lib -lssl -lcrypto"
             CORE_LIBS="$CORE_LIBS $MITLS/src/tls/libmitls.so"
             CORE_LIBS="$CORE_LIBS $NGX_LIBDL"
         ;;
@@ -35,7 +50,7 @@ else
         ngx_feature_run=no
         ngx_feature_incs="#include <mitlsffi.h>"
         ngx_feature_path=
-        ngx_feature_libs="-lmitls"
+        ngx_feature_libs="-L/usr/local/lib -lssl -lcrypto -lmitls"
         ngx_feature_test="int ret = FFI_mitls_init();"
         . auto/feature
         if [ $ngx_found = yes ]; then

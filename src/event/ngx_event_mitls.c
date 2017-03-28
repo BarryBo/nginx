@@ -67,16 +67,16 @@ static time_t ngx_ssl_parse_time(
 #endif
     ASN1_TIME *asn1time);
 
-static void *ngx_openssl_create_conf(ngx_cycle_t *cycle);
-static char *ngx_openssl_engine(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
-static void ngx_openssl_exit(ngx_cycle_t *cycle);
+static void *ngx_mitls_create_conf(ngx_cycle_t *cycle);
+static char *ngx_mitls_engine(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+static void ngx_mitls_exit(ngx_cycle_t *cycle);
 
 
-static ngx_command_t  ngx_openssl_commands[] = {
+static ngx_command_t  ngx_mitls_commands[] = {
 
     { ngx_string("ssl_engine"),
       NGX_MAIN_CONF|NGX_DIRECT_CONF|NGX_CONF_TAKE1,
-      ngx_openssl_engine,
+      ngx_mitls_engine,
       0,
       0,
       NULL },
@@ -85,17 +85,17 @@ static ngx_command_t  ngx_openssl_commands[] = {
 };
 
 
-static ngx_core_module_t  ngx_openssl_module_ctx = {
-    ngx_string("openssl"),
-    ngx_openssl_create_conf,
+static ngx_core_module_t  ngx_mitls_module_ctx = {
+    ngx_string("mitls"),
+    ngx_mitls_create_conf,
     NULL
 };
 
 
-ngx_module_t  ngx_openssl_module = {
+ngx_module_t  ngx_mitls_module = {
     NGX_MODULE_V1,
-    &ngx_openssl_module_ctx,               /* module context */
-    ngx_openssl_commands,                  /* module directives */
+    &ngx_mitls_module_ctx,               /* module context */
+    ngx_mitls_commands,                  /* module directives */
     NGX_CORE_MODULE,                       /* module type */
     NULL,                                  /* init master */
     NULL,                                  /* init module */
@@ -103,7 +103,7 @@ ngx_module_t  ngx_openssl_module = {
     NULL,                                  /* init thread */
     NULL,                                  /* exit thread */
     NULL,                                  /* exit process */
-    ngx_openssl_exit,                      /* exit master */
+    ngx_mitls_exit,                      /* exit master */
     NGX_MODULE_V1_PADDING
 };
 
@@ -156,6 +156,10 @@ ngx_ssl_init(ngx_log_t *log)
     OpenSSL_add_all_algorithms();
 
 #endif
+    
+    if (FFI_mitls_init() == 0) {
+        ngx_ssl_error(NGX_LOG_ALERT, log, 0, "FFI_mitls_init() failed");
+    }
 
     ngx_ssl_connection_index = 0; // mitls_get_ex_new_index() but it is called exactly once, here
 
@@ -578,7 +582,7 @@ ngx_ssl_client_certificate(ngx_conf_t *cf, ngx_ssl_t *ssl, ngx_str_t *cert,
 
     ERR_clear_error();
 
-    list = SSL_load_client_CA_file((char *) cert->data);
+    list = mitls_load_client_CA_file((char *) cert->data);
 
     if (list == NULL) {
         ngx_ssl_error(NGX_LOG_EMERG, ssl->log, 0,
@@ -3854,7 +3858,7 @@ ngx_ssl_parse_time(
 
 
 static void *
-ngx_openssl_create_conf(ngx_cycle_t *cycle)
+ngx_mitls_create_conf(ngx_cycle_t *cycle)
 {
     ngx_openssl_conf_t  *oscf;
 
@@ -3874,7 +3878,7 @@ ngx_openssl_create_conf(ngx_cycle_t *cycle)
 
 
 static char *
-ngx_openssl_engine(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+ngx_mitls_engine(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
 #ifndef OPENSSL_NO_ENGINE
 
@@ -3922,7 +3926,7 @@ ngx_openssl_engine(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
 
 static void
-ngx_openssl_exit(ngx_cycle_t *cycle)
+ngx_mitls_exit(ngx_cycle_t *cycle)
 {
 #if OPENSSL_VERSION_NUMBER < 0x10100003L
 

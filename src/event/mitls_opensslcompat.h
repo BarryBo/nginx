@@ -111,6 +111,7 @@ void mitls_CTX_sess_set_get_cb(mitls_context *ctx,
 void mitls_CTX_sess_set_remove_cb(mitls_context *ctx,
            mitls_remove_session_cb remove_session_cb);
 STACK_OF(X509_NAME) *mitls_CTX_get_client_CA_list(const mitls_context *ctx);
+STACK_OF(X509_NAME) *mitls_load_client_CA_file(const char *file);
 int mitls_CTX_set_session_id_context(mitls_context *ctx, const unsigned char *sid_ctx,
                                     unsigned int sid_ctx_len);
 int mitls_CTX_remove_session(mitls_context *ctx, mitls_session *c);
