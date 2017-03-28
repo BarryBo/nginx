@@ -161,7 +161,7 @@ ngx_ssl_init(ngx_log_t *log)
         ngx_ssl_error(NGX_LOG_ALERT, log, 0, "FFI_mitls_init() failed");
     }
 
-    ngx_ssl_connection_index = 0; // mitls_get_ex_new_index() but it is called exactly once, here
+    ngx_ssl_connection_index = mitls_get_ex_new_index();
 
     if (ngx_ssl_connection_index == -1) {
         ngx_ssl_error(NGX_LOG_ALERT, log, 0, "SSL_get_ex_new_index() failed");
@@ -1023,7 +1023,7 @@ ngx_ssl_create_connection(ngx_ssl_t *ssl, ngx_connection_t *c, ngx_uint_t flags)
     }
 
     if (mitls_set_ex_data(sc->connection, ngx_ssl_connection_index, c) == 0) {
-        ngx_ssl_error(NGX_LOG_ALERT, c->log, 0, "SSL_set_ex_data() failed");
+        ngx_ssl_error(NGX_LOG_ALERT, c->log, 0, "mitls_set_ex_data() failed");
         return NGX_ERROR;
     }
 

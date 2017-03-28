@@ -283,7 +283,7 @@ STACK_OF(X509_NAME) *mitls_CTX_get_client_CA_list(const mitls_context *ctx)
 {
     ngx_log_stderr(0, "Enter: %s", __FUNCTION__);
     // bugbug: implement
-    ngx_log_stderr(ENOSYS, "%s not implemented", __FUNCTION__);
+    ngx_log_stderr(0, "%s not implemented but OK", __FUNCTION__);
     ngx_log_stderr(0, "Leave: %s", __FUNCTION__);
     return NULL;
 }
@@ -301,10 +301,14 @@ int mitls_CTX_set_session_id_context(mitls_context *ctx, const unsigned char *si
                                     unsigned int sid_ctx_len)
 {
     ngx_log_stderr(0, "Enter: %s", __FUNCTION__);
-    // bugbug: implement
-    ngx_log_stderr(ENOSYS, "%s not implemented", __FUNCTION__);
+    if (sid_ctx_len >= SSL_MAX_SSL_SESSION_ID_LENGTH) {
+        ngx_log_stderr(EINVAL, "Leave: %s", __FUNCTION__);
+        return 0;
+    }
+    ctx->sid_ctx_len = sid_ctx_len;
+    memcpy(ctx->sid_ctx, sid_ctx, sid_ctx_len);
     ngx_log_stderr(0, "Leave: %s", __FUNCTION__);
-    return 0;
+    return 1;
 }
 
 int mitls_CTX_remove_session(mitls_context *ctx, mitls_session *c)

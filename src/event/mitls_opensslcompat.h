@@ -78,6 +78,8 @@ typedef struct  _mitls_context {
     
     long timeout;
     
+    unsigned char sid_ctx[SSL_MAX_SSL_SESSION_ID_LENGTH];
+    unsigned int sid_ctx_len;
 } mitls_context; // equivalent to SSL_CTX
 
 
