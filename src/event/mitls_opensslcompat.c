@@ -124,7 +124,9 @@ void mitls_CTX_free(mitls_context *ctx)
 {
     ngx_log_stderr(0, "Enter: %s", __FUNCTION__);
     
-    // bugbug: release other data, like the X509 pointer
+    // bugbug: release other data as needed
+    free(ctx->cert_chain_file);
+    free(ctx->privatekey_file);
     free(ctx->context_data);
     free(ctx);
     ngx_log_stderr(0, "Leave: %s", __FUNCTION__);
@@ -137,15 +139,27 @@ void mitls_CTX_set_info_callback(mitls_context *ctx, mitls_info_callback cb)
     ngx_log_stderr(0, "Leave: %s", __FUNCTION__);
 }
 
-int mitls_CTX_use_certificate(mitls_context *ctx, X509 *x509)
+int mitls_CTX_use_certificate_chain_file(mitls_context *ctx, const char *file)
 {
+    char *f = strdup(file);
+
     ngx_log_stderr(0, "Enter: %s", __FUNCTION__);
-    if (ctx->x509) {
-        X509_free(ctx->x509);
-        ctx->x509 = NULL;
+    if (access(file, R_OK) != 0) {
+        ngx_log_stderr(errno, "Leave: %s - access check for %s failed", __FUNCTION__, file);
+        return 0;
     }
-    // bugbug: should this make a copy of the cert?
-    ctx->x509 = x509;
+
+    f = strdup(file);
+    if (f == NULL) {
+        ngx_log_stderr(ENOMEM, "Leave: %s", __FUNCTION__);
+        return 0;
+    }
+
+    if (ctx->cert_chain_file) {
+        free(ctx->cert_chain_file);
+        ctx->cert_chain_file = NULL;
+    }
+    ctx->cert_chain_file = f;
     ngx_log_stderr(0, "Leave: %s", __FUNCTION__);
     return 1;
 }
@@ -162,7 +176,7 @@ long mitls_CTX_add0_chain_cert(mitls_context *ctx, X509 *x509)
     c->next = ctx->x509_chain_head;
     ctx->x509_chain_head = c;
     ngx_log_stderr(0, "Leave: %s", __FUNCTION__);
-    return 0;
+    return 1;
 }
 
 int mitls_CTX_use_PrivateKey(mitls_context *ctx, EVP_PKEY *pkey)
@@ -192,9 +206,29 @@ void mitls_CTX_set_default_passwd_cb_userdata(mitls_context *ctx, void *u)
 
 int mitls_CTX_use_PrivateKey_file(mitls_context *ctx, const char *file, int type)
 {
+    char *f = strdup(file);
+
     ngx_log_stderr(0, "Enter: %s", __FUNCTION__);
-    // bugbug: should this greedily open the file and read the key out?  Or delay until first use?
-    ctx->privatekey_file = file;
+    if (type != SSL_FILETYPE_PEM) {
+        ngx_log_stderr(0, "Leave %s - bad type", __FUNCTION__);
+        return 0;
+    }
+    if (access(file, R_OK) != 0) {
+        ngx_log_stderr(errno, "Leave: %s - access check for %s failed", __FUNCTION__, file);
+        return 0;
+    }
+
+    f = strdup(file);
+    if (f == NULL) {
+        ngx_log_stderr(ENOMEM, "Leave: %s", __FUNCTION__);
+        return 0;
+    }
+
+    if (ctx->privatekey_file) {
+        free(ctx->privatekey_file);
+        ctx->privatekey_file = NULL;
+    }
+    ctx->privatekey_file = f;
     ctx->privatekey_type = type;
     ngx_log_stderr(0, "Leave: %s", __FUNCTION__);
     return 1;
@@ -584,7 +618,7 @@ int mitls_do_handshake(mitls_connection *ssl)
     char *outmsg;
     char *errmsg;
     
-    ngx_log_stderr(0, "Enter: %s", __FUNCTION__);
+    ngx_log_stderr(0, "Enter: %s", __FUNCTION__, ssl->ctx->tls_version);
 
     // The caller has called mitls_new() to create the mitls_connection, then
     // called mitls_set_fd() and mitls_set_accept().  It is now ready to handshake.
@@ -599,12 +633,30 @@ int mitls_do_handshake(mitls_connection *ssl)
     // The context (ssl->ctx) specifies the allowable TLS versions for this handshake.
     
     // bugbug: hostname appears to be unused in miTLS.  Consider removing it.
+    ngx_log_stderr(0, "Configuring miTLS with TLS version %s cert_chain_file %s privatekey_file %s",
+       ssl->ctx->tls_version, ssl->ctx->cert_chain_file, ssl->ctx->privatekey_file);
     ret = FFI_mitls_configure(&ssl->state, ssl->ctx->tls_version, "" /* hostname */, &outmsg, &errmsg);
     mitls_report_errors(outmsg, errmsg);
     if (ret == 0) {
         ssl->error = SSL_ERROR_SSL;
         ngx_log_stderr(0, "Leave: %s - FFI_mitls_configure() failed", __FUNCTION__);
         return -1;
+    }
+    if (ssl->ctx->cert_chain_file) {
+        ret = FFI_mitls_configure_cert_chain_file(ssl->state, ssl->ctx->cert_chain_file);
+        if (ret == 0) {
+            ssl->error = SSL_ERROR_SSL;
+            ngx_log_stderr(0, "Leave: %s - FFI_mitls_configure_cert_chain_file() failed", __FUNCTION__);
+            return -1;
+        }
+    }
+    if (ssl->ctx->privatekey_file) {
+        ret = FFI_mitls_configure_private_key_file(ssl->state, ssl->ctx->privatekey_file);
+        if (ret == 0) {
+            ssl->error = SSL_ERROR_SSL;
+            ngx_log_stderr(0, "Leave: %s - FFI_mitls_configure_private_key_file() failed", __FUNCTION__);
+            return -1;
+        }
     }
 
     set_socket_blocking(ssl->fd, 1); // BUGBUG: make the socket blocking until miTLS supports nonblocking sockets

@@ -306,9 +306,9 @@ ngx_ssl_certificate(ngx_conf_t *cf, ngx_ssl_t *ssl, ngx_str_t *cert,
         return NGX_ERROR;
     }
 
-    if (mitls_CTX_use_certificate(ssl->ctx, x509) == 0) {
+    if (mitls_CTX_use_certificate_chain_file(ssl->ctx, (const char*)cert->data) == 0) {
         ngx_ssl_error(NGX_LOG_EMERG, ssl->log, 0,
-                      "SSL_CTX_use_certificate(\"%s\") failed", cert->data);
+                      "SSL_CTX_use_certificate_chain_file(\"%s\") failed", cert->data);
         X509_free(x509);
         BIO_free(bio);
         return NGX_ERROR;

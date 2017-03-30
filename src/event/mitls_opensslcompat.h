@@ -52,13 +52,13 @@ typedef struct  _mitls_context {
     void **context_data;
     mitls_info_callback cb;
     
-    X509 * x509;
+    char * cert_chain_file; // name of the .pem file.  Allocated via strdup()
     X509_CHAIN * x509_chain_head; // extra chain certs, newest at the head
     
     EVP_PKEY *privatekey;
     mitls_pem_password_cb default_password_cb;
     void* default_password_userdata;
-    const char * privatekey_file;
+    char * privatekey_file; // name of the .pem file.  Allocated via strdup()
     int privatekey_type;
     
     long options; // see mitls_CTX_set_options
@@ -92,7 +92,7 @@ void *mitls_CTX_get_ex_data(const mitls_context *ctx, int idx);
 mitls_context * mitls_create_CTX(const char *tls_version); // The equivalent of SSL_CTX_new(SSLv23_method());
 void mitls_CTX_free(mitls_context *ctx);
 void mitls_CTX_set_info_callback(mitls_context *ctx, mitls_info_callback cb);
-int mitls_CTX_use_certificate(mitls_context *ctx, X509 *x509);
+int mitls_CTX_use_certificate_chain_file(mitls_context *ctx, const char *file);
 long mitls_CTX_add0_chain_cert(mitls_context *ctx, X509 *x509);
 int mitls_CTX_use_PrivateKey(mitls_context *ctx, EVP_PKEY *pkey);
 void mitls_CTX_set_default_passwd_cb(mitls_context *ctx, mitls_pem_password_cb cb);
