@@ -16,7 +16,6 @@ typedef int (*mitls_tlsext_ticket_key_cb)(ngx_ssl_conn_t *s, unsigned char key_n
                   unsigned char iv[EVP_MAX_IV_LENGTH],
                   EVP_CIPHER_CTX *ctx, HMAC_CTX *hctx, int enc);
 
-
 // The miTLS FFI doesn't have a concept of a session yet.
 typedef struct _mitls_session {
     int refcount;
@@ -28,9 +27,10 @@ typedef struct _mitls_session {
     struct mitls_session_data *session_data;
 } mitls_session;
 
+// Per client connection data
 typedef struct _mitls_connection {
-    // pointer to the miTLS connection state, managed by the FFI layer
-    mitls_state *state;
+    mitls_state *state;  // pointer to the miTLS connection state, managed by the FFI layer
+    struct _FFI_mitls_callbacks ffi_callbacks; // callbacks from mitls into this code
     struct  _mitls_context *ctx;
     mitls_session *session;
     void **ssl_data;
@@ -80,6 +80,8 @@ typedef struct  _mitls_context {
     
     unsigned char sid_ctx[SSL_MAX_SSL_SESSION_ID_LENGTH];
     unsigned int sid_ctx_len;
+    
+    const char *tls_version; // a version string compatible with FFI_mitls_configure()
 } mitls_context; // equivalent to SSL_CTX
 
 
@@ -87,7 +89,7 @@ int mitls_CTX_get_ex_new_index(void);
 int mitls_get_ex_new_index(void);
 int mitls_CTX_set_ex_data(mitls_context *ctx, int idx, void *data);
 void *mitls_CTX_get_ex_data(const mitls_context *ctx, int idx);
-mitls_context * mitls_create_CTX(void); // The equivalent of SSL_CTX_new(SSLv23_method());
+mitls_context * mitls_create_CTX(const char *tls_version); // The equivalent of SSL_CTX_new(SSLv23_method());
 void mitls_CTX_free(mitls_context *ctx);
 void mitls_CTX_set_info_callback(mitls_context *ctx, mitls_info_callback cb);
 int mitls_CTX_use_certificate(mitls_context *ctx, X509 *x509);

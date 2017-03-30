@@ -13,8 +13,31 @@
 
 #define max(a, b)  (((a) > (b)) ? (a) : (b)) 
 
+//
+// Calculate the address of the base of the structure given its type, and an
+// address of a field within the structure.
+//
+
+#define CONTAINING_RECORD(address, type, field) ((type *)( \
+                                                  (char*)(address) - \
+                                                  (size_t)(&((type *)0)->field)))
+
+
 static int mitls_context_data_length;
 static int mitls_ssl_data_length;
+
+static void mitls_report_errors(char *outmsg, char *errmsg)
+{
+    if (outmsg && *outmsg != '\0') {
+      ngx_log_stderr(0, "miTLS outmsg=%s", outmsg);
+    }
+    if (errmsg && *errmsg != '\0') {
+      ngx_log_stderr(0, "miTLS errmsg=%s", errmsg);
+    }
+
+    FFI_mitls_free_msg(outmsg);
+    FFI_mitls_free_msg(errmsg);
+}
 
 int mitls_CTX_get_ex_new_index(void)
 {
@@ -70,7 +93,7 @@ void *mitls_CTX_get_ex_data(const mitls_context *ctx, int idx)
 }
 
 // The equivalent of SSL_CTX_new(SSLv23_method());
-mitls_context * mitls_create_CTX(void)
+mitls_context * mitls_create_CTX(const char *tls_version)
 {
     size_t numbytes;
     
@@ -81,6 +104,7 @@ mitls_context * mitls_create_CTX(void)
         return NULL;
     }
     memset(ctx, 0, sizeof(*ctx)); // zero-fill to begin with
+    ctx->tls_version = tls_version;
     ctx->context_data_length = max(mitls_context_data_length, 2); // preallocate space for at least two slots
     numbytes = ctx->context_data_length*sizeof(void*);
     ctx->context_data = (void**)malloc(numbytes);
@@ -372,11 +396,28 @@ long mitls_CTX_get_timeout(mitls_context *ctx)
     return ctx->timeout;
 }
 
+static int ffi_is_initialized;
+
 mitls_connection * mitls_new(mitls_context *ctx)
 {
     int numbytes;
     
     ngx_log_stderr(0, "Enter: %s", __FUNCTION__);
+    
+    if (!ffi_is_initialized) {
+        // bugbug:  ngx_ssl_init() would be a good place to initiallze the FFI.  Except
+        // that code runs in the master nginx process, and the actual SSL connection
+        // work, including FFI calls, happens in the nginx worker process, after a
+        // fork().  The fork() appears to break pthread locks, causing the FFI calls
+        // to deadlock waiting on nothing.  So delay FFI initialization to here, after
+        // the fork(), so this code runs in the worker process.
+        ngx_log_stderr(0, "Initializing FFI for pid=%d", getpid());
+        if (FFI_mitls_init() == 0) {
+            ngx_log_stderr(EINVAL, "FFI_mitls_init() failed");
+        }
+        ffi_is_initialized = 1;
+    }
+    
     mitls_connection *c = (mitls_connection*)malloc(sizeof(mitls_connection));
     if (c == NULL) {
         ngx_log_stderr(0, "Leave: %s out of memory", __FUNCTION__);
@@ -468,14 +509,119 @@ int mitls_set_session(mitls_connection *ssl, mitls_session *session)
     return 1;
 }
 
+// This is a callback from miTLS
+static int mitls_FFI_send_callback(struct _FFI_mitls_callbacks *callbacks, const void *buffer, size_t buffer_size)
+{
+    mitls_connection *ssl = CONTAINING_RECORD(callbacks, mitls_connection, ffi_callbacks);
+    ssize_t SendResult;
+    
+    ngx_log_stderr(0, "Enter: %s - buffer=%p buffer_size=%d", __FUNCTION__, buffer, (int)buffer_size);
+retry:    
+    SendResult = send(ssl->fd, buffer, buffer_size, 0);
+    if ((size_t)SendResult != buffer_size) {
+        int e = errno;
+        if (e == EAGAIN || e == EWOULDBLOCK) {
+            ngx_log_stderr(e, "%s:  EAGAIN or EWOULDBLOCK.  Trying again.", __FUNCTION__);
+            sleep(5);
+            goto retry;
+        } else {
+            char msg[128];
+            if (strerror_r(e, msg, sizeof(msg)) != 0) {
+                msg[0] = '\0';
+            }
+            ngx_log_stderr(e, "%s: Unknown errno %d - %s", __FUNCTION__, e, msg);
+        }
+    }
+    // bugbug: set ctx->error as needed
+    
+    ngx_log_stderr(0, "Leave: %s: result=%d", __FUNCTION__, (int)SendResult);
+    return (int)SendResult;
+}
+
+// This is a callback from miTLS
+static int mitls_FFI_recv_callback(struct _FFI_mitls_callbacks *callbacks, void *buffer, size_t buffer_size)
+{
+    mitls_connection *ssl = CONTAINING_RECORD(callbacks, mitls_connection, ffi_callbacks);
+    ssize_t RecvResult;
+    
+    ngx_log_stderr(0, "Enter: %s - buffer=%p buffer_size=%d", __FUNCTION__, buffer, (int)buffer_size);
+    
+retry:    
+    RecvResult = recv(ssl->fd, buffer, buffer_size, 0);
+    if ((size_t)RecvResult != buffer_size) {
+        int e = errno;
+        if (e == EAGAIN || e == EWOULDBLOCK) {
+            ngx_log_stderr(e, "%s:  EAGAIN or EWOULDBLOCK", __FUNCTION__);
+            sleep(5);
+            goto retry;
+        } else {
+            char msg[128];
+            if (strerror_r(e, msg, sizeof(msg)) != 0) {
+                msg[0] = '\0';
+            }
+            ngx_log_stderr(e, "%s:  Unknown errno %d - %s", __FUNCTION__, e, msg);
+        }
+    }
+    
+    ngx_log_stderr(0, "Leave: %s: result=%d", __FUNCTION__, (int)RecvResult);
+    return (int)RecvResult;
+}
+
+static void set_socket_blocking(int fd, int blocking)
+{
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (!blocking) {
+        flags |= O_NONBLOCK;
+    } else {
+        flags &= (~O_NONBLOCK);
+    }
+    fcntl(fd, F_SETFL, flags);
+}
+
 int mitls_do_handshake(mitls_connection *ssl)
 {
+    int ret;
+    char *outmsg;
+    char *errmsg;
+    
     ngx_log_stderr(0, "Enter: %s", __FUNCTION__);
-    // bugbug: implement
-    ngx_log_stderr(ENOSYS, "%s not implemented", __FUNCTION__);
-    ssl->error = SSL_ERROR_SSL;
-    ngx_log_stderr(0, "Leave: %s", __FUNCTION__);
-    return -1;
+
+    // The caller has called mitls_new() to create the mitls_connection, then
+    // called mitls_set_fd() and mitls_set_accept().  It is now ready to handshake.
+    
+    if (ssl->is_connect_state != 0) {
+        // The connection is in connect_state, not accept_state
+        ssl->error = SSL_ERROR_SSL;
+        ngx_log_stderr(0, "Leave: %s - can't handshake in connect_state", __FUNCTION__);
+        return -1;
+    }
+    
+    // The context (ssl->ctx) specifies the allowable TLS versions for this handshake.
+    
+    // bugbug: hostname appears to be unused in miTLS.  Consider removing it.
+    ret = FFI_mitls_configure(&ssl->state, ssl->ctx->tls_version, "" /* hostname */, &outmsg, &errmsg);
+    mitls_report_errors(outmsg, errmsg);
+    if (ret == 0) {
+        ssl->error = SSL_ERROR_SSL;
+        ngx_log_stderr(0, "Leave: %s - FFI_mitls_configure() failed", __FUNCTION__);
+        return -1;
+    }
+
+    set_socket_blocking(ssl->fd, 1); // BUGBUG: make the socket blocking until miTLS supports nonblocking sockets
+    ssl->ffi_callbacks.send = mitls_FFI_send_callback;
+    ssl->ffi_callbacks.recv = mitls_FFI_recv_callback;
+    
+    // Do the handshake itself
+    ret = FFI_mitls_accept_connected(&ssl->ffi_callbacks, ssl->state, &outmsg, &errmsg);
+    mitls_report_errors(outmsg, errmsg);
+    if (ret == 0) {
+        ssl->error = SSL_ERROR_SSL;
+        ngx_log_stderr(0, "Leave: %s - FFI_mitls_accept_connected() failed", __FUNCTION__);
+        return -1;
+    }
+    ssl->error =  SSL_ERROR_NONE;
+    ngx_log_stderr(0, "Leave: %s - handshake success", __FUNCTION__);
+    return 0;
 }
 
 SSL_CIPHER *mitls_get_current_cipher(mitls_connection *ssl)

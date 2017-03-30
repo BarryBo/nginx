@@ -117,19 +117,6 @@ int  ngx_ssl_next_certificate_index;
 int  ngx_ssl_certificate_name_index;
 int  ngx_ssl_stapling_index;
 
-static void ngx_mitls_report_errors(ngx_log_t *log, char *outmsg, char *errmsg)
-{
-    if (outmsg && *outmsg != '\0') {
-      ngx_ssl_error(NGX_LOG_INFO, log, 0, "miTLS outmsg=%s", outmsg);
-    }
-    if (errmsg && *errmsg != '\0') {
-      ngx_ssl_error(NGX_LOG_ERR, log, 0, "miTLS errmsg=%s", errmsg);
-    }
-
-    FFI_mitls_free_msg(outmsg);
-    FFI_mitls_free_msg(errmsg);
-}
-
 ngx_int_t
 ngx_ssl_init(ngx_log_t *log)
 {
@@ -157,10 +144,6 @@ ngx_ssl_init(ngx_log_t *log)
 
 #endif
     
-    if (FFI_mitls_init() == 0) {
-        ngx_ssl_error(NGX_LOG_ALERT, log, 0, "FFI_mitls_init() failed");
-    }
-
     ngx_ssl_connection_index = mitls_get_ex_new_index();
 
     if (ngx_ssl_connection_index == -1) {
@@ -226,24 +209,20 @@ ngx_ssl_init(ngx_log_t *log)
 ngx_int_t
 ngx_ssl_create(ngx_ssl_t *ssl, ngx_uint_t protocols, void *data)
 {
-    int ret;
     const char *tls_version;
-    mitls_state *state;
-    char *outmsg;
-    char *errmsg;
     
     // bugbug: honor SSL_OP_NO_TLSv1_2 and add support for TLS 1.0/1.1
     tls_version = (protocols & NGX_SSL_TLSv1_3) ? "1.3" : "1.2";
 
     // bugbug: hostname?  what does it matter to miTLS?
-    ret = FFI_mitls_configure(&state, tls_version, "" /* hostname */, &outmsg, &errmsg);
-    ngx_mitls_report_errors(ssl->log, outmsg, errmsg);
-    if (ret == 0) {
-        ngx_ssl_error(NGX_LOG_EMERG, ssl->log, 0, "FFI_mitls_configure() failed");
-        return NGX_ERROR;
-    }
+    //ret = FFI_mitls_configure(&state, tls_version, "" /* hostname */, &outmsg, &errmsg);
+    //ngx_mitls_report_errors(ssl->log, outmsg, errmsg);
+    //if (ret == 0) {
+    //    ngx_ssl_error(NGX_LOG_EMERG, ssl->log, 0, "FFI_mitls_configure() failed");
+    // return NGX_ERROR;
+    //}
 
-    ssl->ctx = mitls_create_CTX();
+    ssl->ctx = mitls_create_CTX(tls_version);
     if (ssl->ctx == NULL) {
         ngx_ssl_error(NGX_LOG_EMERG, ssl->log, 0, "SSL_CTX_new() failed");
         return NGX_ERROR;
