@@ -5,7 +5,6 @@
  * Copyright (C) Nginx, Inc.
  */
 
-
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_event.h>
@@ -120,6 +119,7 @@ int  ngx_ssl_stapling_index;
 ngx_int_t
 ngx_ssl_init(ngx_log_t *log)
 {
+    #if 0
 #if OPENSSL_VERSION_NUMBER >= 0x10100003L
 
     if (OPENSSL_init_ssl(OPENSSL_INIT_LOAD_CONFIG, NULL) == 0) {
@@ -143,7 +143,8 @@ ngx_ssl_init(ngx_log_t *log)
     OpenSSL_add_all_algorithms();
 
 #endif
-    
+#endif
+
     ngx_ssl_connection_index = mitls_get_ex_new_index();
 
     if (ngx_ssl_connection_index == -1) {
@@ -210,7 +211,7 @@ ngx_int_t
 ngx_ssl_create(ngx_ssl_t *ssl, ngx_uint_t protocols, void *data)
 {
     const char *tls_version;
-    
+
     // bugbug: honor SSL_OP_NO_TLSv1_2 and add support for TLS 1.0/1.1
     tls_version = (protocols & NGX_SSL_TLSv1_3) ? "1.3" : "1.2";
 
@@ -531,7 +532,7 @@ ngx_int_t
 ngx_ssl_client_certificate(ngx_conf_t *cf, ngx_ssl_t *ssl, ngx_str_t *cert,
     ngx_int_t depth)
 {
-    STACK_OF(X509_NAME)  *list;
+    mitls_X509_NAME_stack  *list;
 
     mitls_CTX_set_verify(ssl->ctx, SSL_VERIFY_PEER, ngx_ssl_verify_callback);
 
@@ -1268,7 +1269,15 @@ ngx_ssl_recv(ngx_connection_t *c, u_char *buf, size_t size)
 
     for ( ;; ) {
 
-        n = mitls_read(c->ssl->connection, buf, size);
+        // bugbug: mitls_read() blocks until input arrives.  But ngx expects it to
+        //         return 0 immediately if there is no further data waiting.
+        //         Simulate that here by setting n=0 if the loop has gone around
+        //         once already.
+        if (bytes) {
+            n = 0;
+        } else {
+            n = mitls_read(c->ssl->connection, buf, size);
+        }
 
         ngx_log_debug1(NGX_LOG_DEBUG_EVENT, c->log, 0, "SSL_read: %d", n);
 
@@ -1695,19 +1704,6 @@ ngx_ssl_shutdown(ngx_connection_t *c)
     int        n, sslerr, mode;
     ngx_err_t  err;
 
-    if (mitls_in_init(c->ssl->connection)) {
-        /*
-         * OpenSSL 1.0.2f complains if SSL_shutdown() is called during
-         * an SSL handshake, while previous versions always return 0.
-         * Avoid calling SSL_shutdown() if handshake wasn't completed.
-         */
-
-        mitls_free(c->ssl->connection);
-        c->ssl = NULL;
-
-        return NGX_OK;
-    }
-
     if (c->timedout) {
         mode = SSL_RECEIVED_SHUTDOWN|SSL_SENT_SHUTDOWN;
         mitls_set_quiet_shutdown(c->ssl->connection, 1);
@@ -2075,12 +2071,11 @@ ngx_ssl_session_cache(ngx_ssl_t *ssl, ngx_str_t *sess_ctx,
 static ngx_int_t
 ngx_ssl_session_id_context(ngx_ssl_t *ssl, ngx_str_t *sess_ctx)
 {
-    int                   n, i;
     X509                 *cert;
     X509_NAME            *name;
     EVP_MD_CTX           *md;
     unsigned int          len;
-    STACK_OF(X509_NAME)  *list;
+    mitls_X509_NAME_stack  *list;
     u_char                buf[EVP_MAX_MD_SIZE];
 
     /*
@@ -2124,23 +2119,20 @@ ngx_ssl_session_id_context(ngx_ssl_t *ssl, ngx_str_t *sess_ctx)
 
     list = mitls_CTX_get_client_CA_list(ssl->ctx);
 
-    if (list != NULL) {
-        n = sk_X509_NAME_num(list);
+    while (list != NULL) {
+        name = list->x509_name;
+        list = list->next;
 
-        for (i = 0; i < n; i++) {
-            name = sk_X509_NAME_value(list, i);
+        if (X509_NAME_digest(name, EVP_sha1(), buf, &len) == 0) {
+            ngx_ssl_error(NGX_LOG_EMERG, ssl->log, 0,
+                          "X509_NAME_digest() failed");
+            goto failed;
+        }
 
-            if (X509_NAME_digest(name, EVP_sha1(), buf, &len) == 0) {
-                ngx_ssl_error(NGX_LOG_EMERG, ssl->log, 0,
-                              "X509_NAME_digest() failed");
-                goto failed;
-            }
-
-            if (EVP_DigestUpdate(md, buf, len) == 0) {
-                ngx_ssl_error(NGX_LOG_EMERG, ssl->log, 0,
-                              "EVP_DigestUpdate() failed");
-                goto failed;
-            }
+        if (EVP_DigestUpdate(md, buf, len) == 0) {
+            ngx_ssl_error(NGX_LOG_EMERG, ssl->log, 0,
+                          "EVP_DigestUpdate() failed");
+            goto failed;
         }
     }
 

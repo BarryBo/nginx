@@ -16,13 +16,18 @@ typedef int (*mitls_tlsext_ticket_key_cb)(ngx_ssl_conn_t *s, unsigned char key_n
                   unsigned char iv[EVP_MAX_IV_LENGTH],
                   EVP_CIPHER_CTX *ctx, HMAC_CTX *hctx, int enc);
 
+typedef struct _mitls_X509_NAME_stack {
+    struct _mitls_X509_NAME_stack *next;
+    X509_NAME *x509_name;
+} mitls_X509_NAME_stack;
+
 // The miTLS FFI doesn't have a concept of a session yet.
 typedef struct _mitls_session {
     int refcount;
-    
+
     // number of elements in session_data
     size_t session_data_length;
-    
+
     // dense array of session data.
     struct mitls_session_data *session_data;
 } mitls_session;
@@ -31,7 +36,7 @@ typedef struct _mitls_session {
 typedef struct _mitls_connection {
     mitls_state *state;  // pointer to the miTLS connection state, managed by the FFI layer
     struct _FFI_mitls_callbacks ffi_callbacks; // callbacks from mitls into this code
-    struct  _mitls_context *ctx;
+    struct _mitls_context *ctx;
     mitls_session *session;
     void **ssl_data;
     int ssl_data_length; // number of elements in the data[] array
@@ -42,7 +47,7 @@ typedef struct _mitls_connection {
     int shutdown;
 } mitls_connection;
 
-typedef struct _X509_CHAIN  {
+typedef struct _X509_CHAIN {
     struct _X509_CHAIN  *next;
     X509* x509;
 } X509_CHAIN;
@@ -60,27 +65,27 @@ typedef struct  _mitls_context {
     void* default_password_userdata;
     char * privatekey_file; // name of the .pem file.  Allocated via strdup()
     int privatekey_type;
-    
+
     long options; // see mitls_CTX_set_options
-    
+
     mitls_verify_callback verify_callback;
     int verify_depth;
-    
+
     int session_cache_mode;
     long session_cache_size;
     mitls_new_session_cb session_new_cb;
     mitls_get_session_cb session_get_cb;
     mitls_remove_session_cb session_remove_cb;
     mitls_tlsext_ticket_key_cb tlsext_ticket_key_cb;
-    
+
     DH *dh;
     int ecdh_auto;
-    
+
     long timeout;
-    
+
     unsigned char sid_ctx[SSL_MAX_SSL_SESSION_ID_LENGTH];
     unsigned int sid_ctx_len;
-    
+
     const char *tls_version; // a version string compatible with FFI_mitls_configure()
 } mitls_context; // equivalent to SSL_CTX
 
@@ -104,7 +109,7 @@ void mitls_CTX_set_verify(mitls_context *ctx, int mode, mitls_verify_callback ve
 void mitls_CTX_set_verify_depth(mitls_context *ctx,int depth);
 int mitls_CTX_load_verify_locations(mitls_context *ctx, const char *CAfile,
                                    const char *CApath);
-void mitls_CTX_set_client_CA_list(mitls_context *ctx, STACK_OF(X509_NAME) *list);
+void mitls_CTX_set_client_CA_list(mitls_context *ctx, mitls_X509_NAME_stack *list);
 X509_STORE *mitls_CTX_get_cert_store(const mitls_context *ctx);
 long mitls_CTX_set_session_cache_mode(mitls_context *ctx, long mode);
 long mitls_CTX_sess_set_cache_size(mitls_context *ctx, long t);
@@ -114,8 +119,8 @@ void mitls_CTX_sess_set_get_cb(mitls_context *ctx,
            mitls_get_session_cb get_session_cb);
 void mitls_CTX_sess_set_remove_cb(mitls_context *ctx,
            mitls_remove_session_cb remove_session_cb);
-STACK_OF(X509_NAME) *mitls_CTX_get_client_CA_list(const mitls_context *ctx);
-STACK_OF(X509_NAME) *mitls_load_client_CA_file(const char *file);
+mitls_X509_NAME_stack *mitls_CTX_get_client_CA_list(const mitls_context *ctx);
+mitls_X509_NAME_stack *mitls_load_client_CA_file(const char *file);
 int mitls_CTX_set_session_id_context(mitls_context *ctx, const unsigned char *sid_ctx,
                                     unsigned int sid_ctx_len);
 int mitls_CTX_remove_session(mitls_context *ctx, mitls_session *c);
@@ -142,7 +147,6 @@ const char *mitls_get_version(const mitls_connection *ssl);
 int mitls_session_reused(mitls_connection *ssl);  // Note: This is only called from debugging code.
 int mitls_read(mitls_connection *ssl, void *buf, int num);
 int mitls_write(mitls_connection *ssl, const void *buf, int num);
-int mitls_in_init(mitls_connection *ssl);
 void mitls_set_quiet_shutdown(mitls_connection *ssl, int mode);
 void mitls_set_shutdown(mitls_connection *ssl, int mode);
 int mitls_get_shutdown(const mitls_connection *ssl);

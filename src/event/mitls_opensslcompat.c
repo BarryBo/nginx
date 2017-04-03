@@ -96,7 +96,7 @@ void *mitls_CTX_get_ex_data(const mitls_context *ctx, int idx)
 mitls_context * mitls_create_CTX(const char *tls_version)
 {
     size_t numbytes;
-    
+
     ngx_log_stderr(0, "Enter: %s", __FUNCTION__);
     mitls_context * ctx = malloc(sizeof(mitls_context));
     if (ctx == NULL) {
@@ -278,7 +278,7 @@ int mitls_CTX_load_verify_locations(mitls_context *ctx, const char *CAfile,
     return 1;
 }
 
-void mitls_CTX_set_client_CA_list(mitls_context *ctx, STACK_OF(X509_NAME) *list)
+void mitls_CTX_set_client_CA_list(mitls_context *ctx, mitls_X509_NAME_stack *list)
 {
     ngx_log_stderr(0, "Enter: %s", __FUNCTION__);
     // bugbug: implement
@@ -337,7 +337,7 @@ void mitls_CTX_sess_set_remove_cb(mitls_context *ctx,
     ngx_log_stderr(0, "Leave: %s", __FUNCTION__);
 }
  
-STACK_OF(X509_NAME) *mitls_CTX_get_client_CA_list(const mitls_context *ctx)
+mitls_X509_NAME_stack *mitls_CTX_get_client_CA_list(const mitls_context *ctx)
 {
     ngx_log_stderr(0, "Enter: %s", __FUNCTION__);
     // bugbug: implement
@@ -346,7 +346,7 @@ STACK_OF(X509_NAME) *mitls_CTX_get_client_CA_list(const mitls_context *ctx)
     return NULL;
 }
 
-STACK_OF(X509_NAME) *mitls_load_client_CA_file(const char *file)
+mitls_X509_NAME_stack *mitls_load_client_CA_file(const char *file)
 {
     ngx_log_stderr(0, "Enter: %s", __FUNCTION__);
     // bugbug: implement
@@ -435,7 +435,7 @@ static int ffi_is_initialized;
 mitls_connection * mitls_new(mitls_context *ctx)
 {
     int numbytes;
-    
+
     ngx_log_stderr(0, "Enter: %s", __FUNCTION__);
     
     if (!ffi_is_initialized) {
@@ -451,14 +451,14 @@ mitls_connection * mitls_new(mitls_context *ctx)
         }
         ffi_is_initialized = 1;
     }
-    
+
     mitls_connection *c = (mitls_connection*)malloc(sizeof(mitls_connection));
     if (c == NULL) {
         ngx_log_stderr(0, "Leave: %s out of memory", __FUNCTION__);
         return NULL;
     }
     memset(c, 0, sizeof(*c)); // zero-initialize all fields by default
-    
+
     c->ssl_data_length = max(mitls_ssl_data_length, 1); // preallocate space for at least one slot
     numbytes = c->ssl_data_length*sizeof(void*);
     c->ssl_data = (void**)malloc(numbytes);
@@ -548,7 +548,7 @@ static int mitls_FFI_send_callback(struct _FFI_mitls_callbacks *callbacks, const
 {
     mitls_connection *ssl = CONTAINING_RECORD(callbacks, mitls_connection, ffi_callbacks);
     ssize_t SendResult;
-    
+
     ngx_log_stderr(0, "Enter: %s - buffer=%p buffer_size=%d", __FUNCTION__, buffer, (int)buffer_size);
 retry:    
     SendResult = send(ssl->fd, buffer, buffer_size, 0);
@@ -567,7 +567,7 @@ retry:
         }
     }
     // bugbug: set ctx->error as needed
-    
+
     ngx_log_stderr(0, "Leave: %s: result=%d", __FUNCTION__, (int)SendResult);
     return (int)SendResult;
 }
@@ -577,10 +577,10 @@ static int mitls_FFI_recv_callback(struct _FFI_mitls_callbacks *callbacks, void 
 {
     mitls_connection *ssl = CONTAINING_RECORD(callbacks, mitls_connection, ffi_callbacks);
     ssize_t RecvResult;
-    
+
     ngx_log_stderr(0, "Enter: %s - buffer=%p buffer_size=%d", __FUNCTION__, buffer, (int)buffer_size);
-    
-retry:    
+
+retry:
     RecvResult = recv(ssl->fd, buffer, buffer_size, 0);
     if ((size_t)RecvResult != buffer_size) {
         int e = errno;
@@ -596,7 +596,7 @@ retry:
             ngx_log_stderr(e, "%s:  Unknown errno %d - %s", __FUNCTION__, e, msg);
         }
     }
-    
+
     ngx_log_stderr(0, "Leave: %s: result=%d", __FUNCTION__, (int)RecvResult);
     return (int)RecvResult;
 }
@@ -617,21 +617,21 @@ int mitls_do_handshake(mitls_connection *ssl)
     int ret;
     char *outmsg;
     char *errmsg;
-    
+
     ngx_log_stderr(0, "Enter: %s", __FUNCTION__, ssl->ctx->tls_version);
 
     // The caller has called mitls_new() to create the mitls_connection, then
     // called mitls_set_fd() and mitls_set_accept().  It is now ready to handshake.
-    
+
     if (ssl->is_connect_state != 0) {
         // The connection is in connect_state, not accept_state
         ssl->error = SSL_ERROR_SSL;
         ngx_log_stderr(0, "Leave: %s - can't handshake in connect_state", __FUNCTION__);
         return -1;
     }
-    
+
     // The context (ssl->ctx) specifies the allowable TLS versions for this handshake.
-    
+
     // bugbug: hostname appears to be unused in miTLS.  Consider removing it.
     ngx_log_stderr(0, "Configuring miTLS with TLS version %s cert_chain_file %s privatekey_file %s",
        ssl->ctx->tls_version, ssl->ctx->cert_chain_file, ssl->ctx->privatekey_file);
@@ -662,7 +662,11 @@ int mitls_do_handshake(mitls_connection *ssl)
     set_socket_blocking(ssl->fd, 1); // BUGBUG: make the socket blocking until miTLS supports nonblocking sockets
     ssl->ffi_callbacks.send = mitls_FFI_send_callback;
     ssl->ffi_callbacks.recv = mitls_FFI_recv_callback;
-    
+
+    if (ssl->ctx->cb) {
+        (ssl->ctx->cb)(ssl, SSL_CB_HANDSHAKE_START, 0);
+    }
+
     // Do the handshake itself
     ret = FFI_mitls_accept_connected(&ssl->ffi_callbacks, ssl->state, &outmsg, &errmsg);
     mitls_report_errors(outmsg, errmsg);
@@ -671,16 +675,20 @@ int mitls_do_handshake(mitls_connection *ssl)
         ngx_log_stderr(0, "Leave: %s - FFI_mitls_accept_connected() failed", __FUNCTION__);
         return -1;
     }
+    if (ssl->ctx->cb) {
+        (ssl->ctx->cb)(ssl, SSL_CB_HANDSHAKE_DONE, 0);
+    }
+
     ssl->error =  SSL_ERROR_NONE;
     ngx_log_stderr(0, "Leave: %s - handshake success", __FUNCTION__);
-    return 0;
+    return 1;
 }
 
 SSL_CIPHER *mitls_get_current_cipher(mitls_connection *ssl)
 {
     ngx_log_stderr(0, "Enter: %s", __FUNCTION__);
-    // bugbug: implement
-    ngx_log_stderr(ENOSYS, "%s not implemented", __FUNCTION__);
+    // bugbug: implement.  This is only called from debug code in nginx
+    ngx_log_stderr(0, "%s not implemented but benign", __FUNCTION__);
     ngx_log_stderr(0, "Leave: %s", __FUNCTION__);
     return NULL;
 }
@@ -736,13 +744,13 @@ char *mitls_CIPHER_description(const SSL_CIPHER *cipher, char *buf, int size)
 
 int mitls_get_error(const mitls_connection *ssl, int ret)
 {
-    ngx_log_stderr(0, "Enter: %s", __FUNCTION__);
+    ngx_log_stderr(0, "Enter: %s (ret=%d)", __FUNCTION__, ret);
     // ret is the last return from a call to a mitls_*() API
     if (ret > 0) {
         ngx_log_stderr(0, "Leave: %s no error", __FUNCTION__);
         return SSL_ERROR_NONE;
     }
-    ngx_log_stderr(0, "Leave: %s", __FUNCTION__);
+    ngx_log_stderr(0, "Leave: %s with %d", __FUNCTION__, ssl->error);
     return ssl->error;
 }
 
@@ -766,31 +774,52 @@ int mitls_session_reused(mitls_connection *ssl)
 
 int mitls_read(mitls_connection *ssl, void *buf, int num)
 {
+    void *packet;
+    size_t packet_size;
+    char *outmsg;
+    char *errmsg;
+    int ret = -1;
+
     ngx_log_stderr(0, "Enter: %s", __FUNCTION__);
-    // bugbug: implement
-    ngx_log_stderr(ENOSYS, "%s not implemented", __FUNCTION__);
-    ssl->error = SSL_ERROR_SSL;
-    ngx_log_stderr(0, "Leave: %s", __FUNCTION__);
-    return -1;
+
+    packet = FFI_mitls_receive(ssl->state, &packet_size, &outmsg, &errmsg);
+    mitls_report_errors(outmsg, errmsg);
+    if (packet) {
+        if (packet_size > (size_t)num) {
+            ngx_log_stderr(0, "Error!  miTLS returned more bytes than the caller requested.   Dropping them.");
+            packet_size = num;
+        }
+        memcpy(buf, packet, packet_size);
+        FFI_mitls_free_packet(packet);
+        ssl->error = SSL_ERROR_WANT_READ;
+        ret = (int)packet_size;
+    } else {
+        ssl->error = SSL_ERROR_SSL;
+    }
+    ngx_log_stderr(0, "Leave: %s - ret=%d", __FUNCTION__, ret);
+    return ret;
 }
 
 int mitls_write(mitls_connection *ssl, const void *buf, int num)
 {
-    ngx_log_stderr(0, "Enter: %s", __FUNCTION__);
-    // bugbug: implement
-    ngx_log_stderr(ENOSYS, "%s not implemented", __FUNCTION__);
-    ssl->error = SSL_ERROR_SSL;
-    ngx_log_stderr(0, "Leave: %s", __FUNCTION__);
-    return -1;
-}
+    char *outmsg;
+    char *errmsg;
+    int ret;
 
-int mitls_in_init(mitls_connection *ssl)
-{
     ngx_log_stderr(0, "Enter: %s", __FUNCTION__);
-    // bugbug: implement
-    ngx_log_stderr(ENOSYS, "%s not implemented", __FUNCTION__);
-    ngx_log_stderr(0, "Leave: %s", __FUNCTION__);
-    return 0;
+
+    ret = FFI_mitls_send(ssl->state, buf, num, &outmsg, &errmsg);
+    mitls_report_errors(outmsg, errmsg);
+    if (ret == 0) { // failed
+        ssl->error = SSL_ERROR_SSL;
+        ret = -1;
+    } else {
+        ssl->error = SSL_ERROR_NONE;
+        ret = num;
+    }
+
+    ngx_log_stderr(0, "Leave: %s - ret=%d", __FUNCTION__, ret);
+    return ret;
 }
 
 void mitls_set_quiet_shutdown(mitls_connection *ssl, int mode)

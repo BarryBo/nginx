@@ -46,18 +46,18 @@ typedef struct _mitls_context mitls_context;
 
 //  ngx_ssl_t is an alias for this struct
 struct ngx_ssl_s {
-    mitls_context                    *ctx;
-    ngx_log_t                  *log;
+    mitls_context               *ctx;
+    ngx_log_t                   *log;
     size_t                      buffer_size;
 };
 
 
 struct ngx_ssl_connection_s {
-    ngx_ssl_conn_t             *connection;
-    mitls_context                *ctx;
+    ngx_ssl_conn_t              *connection;
+    mitls_context               *ctx;
 
     ngx_int_t                   last;
-    ngx_buf_t                  *buf;
+    ngx_buf_t                   *buf;
     size_t                      buffer_size;
 
     ngx_connection_handler_pt   handler;
@@ -65,11 +65,11 @@ struct ngx_ssl_connection_s {
     ngx_event_handler_pt        saved_read_handler;
     ngx_event_handler_pt        saved_write_handler;
 
-    unsigned                    handshaked:1;
-    unsigned                    renegotiation:1;
-    unsigned                    buffer:1;
-    unsigned                    no_wait_shutdown:1;
-    unsigned                    no_send_shutdown:1;
+    unsigned                   handshaked:1;
+    unsigned                   renegotiation:1;
+    unsigned                   buffer:1;
+    unsigned                   no_wait_shutdown:1;
+    unsigned                   no_send_shutdown:1;
 };
 
 
@@ -85,9 +85,9 @@ typedef struct ngx_ssl_sess_id_s  ngx_ssl_sess_id_t;
 
 struct ngx_ssl_sess_id_s {
     ngx_rbtree_node_t           node;
-    u_char                     *id;
+    u_char                      *id;
     size_t                      len;
-    u_char                     *session;
+    u_char                      *session;
     ngx_queue_t                 queue;
     time_t                      expire;
 #if (NGX_PTR_SIZE == 8)
